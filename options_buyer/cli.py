@@ -6,12 +6,15 @@ import argparse
 import json
 
 from options_buyer import PLAYBOOK_VERSION, __version__
+from options_buyer.backtest import BacktestEngine, BarQuote
 from options_buyer.core.branch import choose_branch
+from options_buyer.core.gex import StrikeGex
 from options_buyer.core.r import compute_r
 from options_buyer.core.sizing import floor_contracts, size_long_or_debit
-from options_buyer.core.types import AccountState, StrategyCategory, StrategyType
+from options_buyer.core.trigger import FlowPrint, FlowSide
+from options_buyer.core.types import AccountState, OptionQuote, StrategyCategory, StrategyType
 from options_buyer.execution.paper import PaperBroker
-from options_buyer.risk.halt import record_stop, record_win, reset_day
+from options_buyer.pipeline import TradingPipeline
 
 
 def cmd_demo(_: argparse.Namespace) -> int:
@@ -108,6 +111,75 @@ def cmd_r(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pipeline(_: argparse.Namespace) -> int:
+    """合成行情走 TradingPipeline 突破开仓冒烟。"""
+    rows = [
+        StrikeGex(100, 10, -80, 1000, 1000, 1000, 1000),
+        StrikeGex(105, 20, -10, 2000, 200, 1000, 100),
+    ]
+    acct = AccountState(equity=50_000)
+    broker = PaperBroker(acct)
+    pipe = TradingPipeline(acct, broker)
+    q = OptionQuote(
+        symbol="SPY",
+        strike=105,
+        dte=30,
+        right="C",
+        bid=1.95,
+        ask=2.0,
+        mid=1.975,
+        delta=0.40,
+        oi=1000,
+        volume=500,
+    )
+    prints = [FlowPrint(105, FlowSide.BTO_CALL, 200, 0.4, 800, 500)]
+    res = pipe.evaluate_and_maybe_open(
+        category=StrategyCategory.BREAKOUT,
+        gex_rows=rows,
+        spot=100,
+        quote=q,
+        iv_rank=25,
+        flow_prints=prints,
+        target_strike=105,
+        broke_5m_close=True,
+        near_structure=True,
+        negative_gex_override=True,
+        structure_target_r=2.0,
+    )
+    out = {
+        "allowed": res.allowed,
+        "strategy": res.plan.strategy.value if res.plan and res.plan.strategy else None,
+        "position_id": res.position.position_id if res.position else None,
+        "veto": res.veto_reasons,
+        "checklist_passed": res.checklist.passed if res.checklist else None,
+    }
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0 if res.allowed else 1
+
+
+def cmd_backtest(_: argparse.Namespace) -> int:
+    bars = [
+        BarQuote(0, bid=1.90, ask=2.00, dte=30),
+        BarQuote(1, bid=1.50, ask=1.60, dte=28),
+        BarQuote(2, bid=1.00, ask=1.10, dte=25),
+    ]
+    result = BacktestEngine(equity=50_000).run(bars)
+    print(
+        json.dumps(
+            {
+                "fills": len(result.fills),
+                "day_pnl": result.day_pnl,
+                "ending_equity": result.ending_equity,
+                "notes": result.notes,
+                "trades": len(result.trade_results),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="期权买方 v1.7 规则引擎")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -128,6 +200,12 @@ def main(argv: list[str] | None = None) -> int:
     p_r.add_argument("--credit", type=float, default=2.5)
     p_r.add_argument("--contracts", type=int, default=1)
     p_r.set_defaults(func=cmd_r)
+
+    p_pipe = sub.add_parser("pipeline", help="合成行情跑 TradingPipeline 冒烟")
+    p_pipe.set_defaults(func=cmd_pipeline)
+
+    p_bt = sub.add_parser("backtest", help="合成 bid/ask 跑纸面回测冒烟")
+    p_bt.set_defaults(func=cmd_backtest)
 
     args = parser.parse_args(argv)
     return args.func(args)

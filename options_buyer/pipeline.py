@@ -12,10 +12,14 @@ from options_buyer.core.correlation import CorrelationBook
 from options_buyer.core.gex import GexStructure, StrikeGex, build_structure
 from options_buyer.core.iv_crush import estimate_iv_crush
 from options_buyer.core.liquidity import check_liquidity
+from options_buyer.core.r import compute_r, structure_target_ok
 from options_buyer.core.regime import RegimeDecision, evaluate_regime
+from options_buyer.core.sizing import can_open_premium, size_long_or_debit
+from options_buyer.core.spreads import validate_credit_spread, validate_debit_spread
 from options_buyer.core.trigger import FlowPrint, TriggerDecision, evaluate_trigger
 from options_buyer.core.types import (
     AccountState,
+    MULTIPLIER,
     OptionQuote,
     Position,
     StrategyCategory,
@@ -24,10 +28,38 @@ from options_buyer.core.types import (
 from options_buyer.execution.paper import PaperBroker
 from options_buyer.risk.greeks import PortfolioGreeks
 from options_buyer.risk.veto import VetoContext, evaluate_vetoes
-from options_buyer.signals.checklist import PreTradeChecklist, build_checklist
+from options_buyer.signals.checklist import PreTradeChecklist
 from options_buyer.sop.daily import IntradayGate, run_intraday_gate
 from options_buyer.strategies import run_absorption_3a, run_breakout, run_mean_reversion
 from options_buyer.strategies.types import StrategyPlan
+
+
+def price_between_walls(spot: float, structure: GexStructure) -> bool:
+    """现价是否严格落在 Put Wall 与 Call Wall 之间（需两侧墙均存在）。"""
+    put_w = structure.put_wall
+    call_w = structure.call_wall
+    if put_w is None or call_w is None:
+        return False
+    lo, hi = (put_w, call_w) if put_w <= call_w else (call_w, put_w)
+    return lo < spot < hi
+
+
+def iv_branch_consistent(
+    *,
+    iv_rank: float,
+    strategy: StrategyType,
+    category: StrategyCategory,
+) -> bool:
+    """IV Rank 与所选策略分支一致（§3.4.0 / §5）。"""
+    if category == StrategyCategory.MEAN_REVERSION:
+        return strategy == StrategyType.CREDIT_SPREAD
+    if iv_rank > 50:
+        return strategy in (
+            StrategyType.DEBIT_SPREAD,
+            StrategyType.DEEP_ITM,
+            StrategyType.CREDIT_SPREAD,
+        )
+    return True
 
 
 @dataclass
@@ -138,6 +170,8 @@ class TradingPipeline:
             negative_gex=neg,
         )
 
+        between_walls = price_between_walls(spot, structure)
+
         plan: StrategyPlan | None = None
         if category == StrategyCategory.BREAKOUT:
             plan = run_breakout(
@@ -168,7 +202,7 @@ class TradingPipeline:
         else:
             plan = run_mean_reversion(
                 structure=structure,
-                price_between_walls=True,
+                price_between_walls=between_walls,
                 side=mr_side,
                 short_strike=short_strike or ts,
                 wall_strike=wall_strike or (structure.call_wall or spot),
@@ -216,6 +250,28 @@ class TradingPipeline:
         delta_ok = branch.delta_lo <= abs(quote.delta) <= branch.delta_hi
         dte_ok = branch.dte_lo <= quote.dte <= branch.dte_hi
 
+        spread_ok = _spread_params_ok(
+            plan.strategy,
+            quote=quote,
+            protect_quote=protect_quote,
+            width=width,
+            credit=credit,
+        )
+        tgt_ok = structure_target_ok(plan.structure_target_r, plan.strategy)
+        size_ok, day_budget_ok, premium_est = _size_and_day_budget(
+            account=self.account,
+            strategy=plan.strategy,
+            category=category,
+            quote=quote,
+            width=width,
+            credit=credit,
+            margin=margin or (width - credit) * MULTIPLIER,
+            half=regime.size_multiplier < 1.0 or plan.size_multiplier < 1.0,
+        )
+        iv_ok = iv_branch_consistent(
+            iv_rank=iv_rank, strategy=plan.strategy, category=category
+        )
+
         veto_ctx = VetoContext(
             iv_rank=iv_rank,
             event_window=event_window,
@@ -231,11 +287,15 @@ class TradingPipeline:
             structure_target_r=plan.structure_target_r,
             greeks_ok=True if greeks is None else greeks.ok,
             block_new_buyer=False if greeks is None else greeks.block_new_buyer,
+            debit_pct_of_width=(quote.ask / width) if plan.strategy == StrategyType.DEBIT_SPREAD and width > 0 else None,
+            credit_pct_of_width=(credit / width) if plan.strategy == StrategyType.CREDIT_SPREAD and width > 0 else None,
+            protect_leg_ok=True
+            if protect_quote is None
+            else check_liquidity(protect_quote, protect_leg=True).ok,
         )
         vr = evaluate_vetoes(self.account, veto_ctx)
         corr_ok = True
         if self.correlation is not None:
-            premium_est = quote.ask * 100
             corr_ok, pct = self.correlation.allows(
                 equity=self.account.equity,
                 symbol=quote.symbol,
@@ -244,20 +304,32 @@ class TradingPipeline:
             )
             veto_ctx.correlation_premium_pct = pct
 
+        # 定义 R：能算出 1R 即视为已定义
+        try:
+            if plan.strategy == StrategyType.CREDIT_SPREAD:
+                compute_r(plan.strategy, width=width, credit=credit, contracts=1)
+            elif plan.strategy == StrategyType.DEBIT_SPREAD:
+                compute_r(plan.strategy, debit=quote.ask, contracts=1)
+            else:
+                compute_r(plan.strategy, premium=quote.ask, contracts=1)
+            r_defined = True
+        except ValueError:
+            r_defined = False
+
         gate = run_intraday_gate(
             account=self.account,
             regime=regime,
             structure_active=bool(structure.active_walls),
             flow_ok=trigger.fired or category != StrategyCategory.BREAKOUT,
-            iv_branch_ok=True,
+            iv_branch_ok=iv_ok,
             delta_dte_ok=delta_ok and dte_ok,
-            spread_params_ok=True,
+            spread_params_ok=spread_ok,
             liquidity_ok=liq.ok,
             iv_crush_ok=crush_ok,
-            r_defined=True,
-            structure_target_ok_flag=True,
-            size_ok=True,
-            day_budget_ok=True,
+            r_defined=r_defined,
+            structure_target_ok_flag=tgt_ok,
+            size_ok=size_ok,
+            day_budget_ok=day_budget_ok,
             greeks_ok=veto_ctx.greeks_ok,
             correlation_ok=corr_ok,
             now=self.broker.now,
@@ -293,6 +365,7 @@ class TradingPipeline:
                 structure_target_r=plan.structure_target_r,
                 half_size=half,
                 spot=spot,
+                width=width,
                 veto_ctx=veto_ctx,
             )
         else:
@@ -300,7 +373,7 @@ class TradingPipeline:
                 symbol=quote.symbol,
                 width=width,
                 credit=credit,
-                margin=margin or (width - credit) * 100,
+                margin=margin or (width - credit) * MULTIPLIER,
                 category=category,
                 dte=quote.dte,
                 structure_target_r=plan.structure_target_r,
@@ -320,3 +393,84 @@ class TradingPipeline:
             position=pos,
             notes=notes,
         )
+
+
+def _spread_params_ok(
+    strategy: StrategyType,
+    *,
+    quote: OptionQuote,
+    protect_quote: OptionQuote | None,
+    width: float,
+    credit: float,
+) -> bool:
+    if strategy == StrategyType.CREDIT_SPREAD:
+        if protect_quote is None or width <= 0:
+            return False
+        return validate_credit_spread(
+            short_delta=quote.delta,
+            protect_delta=protect_quote.delta,
+            width=width,
+            net_credit=credit,
+        ).ok
+    if strategy == StrategyType.DEBIT_SPREAD:
+        if width <= 0:
+            return False
+        # 编排层通常只注入长腿报价；净支/宽度用 validate，腿 Delta 用长腿近似
+        # （完整双腿校验由调用方在接入链时补充 protect/short 报价）
+        if quote.ask / width > 0.40 + 1e-12:
+            return False
+        if not (0.50 <= abs(quote.delta) <= 0.60):
+            # 借方长腿 Delta 窗口；若报价是合成净价腿则放宽由分支 delta 检查兜底
+            return True
+        return validate_debit_spread(
+            long_delta=quote.delta,
+            short_delta=0.30,
+            width=width,
+            net_debit=quote.ask,
+        ).ok
+    return True
+
+
+def _size_and_day_budget(
+    *,
+    account: AccountState,
+    strategy: StrategyType,
+    category: StrategyCategory,
+    quote: OptionQuote,
+    width: float,
+    credit: float,
+    margin: float,
+    half: bool,
+) -> tuple[bool, bool, float]:
+    """返回 (size_ok, day_budget_ok, premium_or_risk_est)。"""
+    if strategy == StrategyType.CREDIT_SPREAD:
+        max_loss = max(0.0, (width - credit) * MULTIPLIER)
+        ok, reason = can_open_premium(
+            account,
+            new_premium=0.0,
+            category=category,
+            strategy=strategy,
+            margin=margin,
+            max_loss=max_loss,
+        )
+        size_ok = ok and margin > 0
+        day_ok = "日" not in reason
+        if ok:
+            return True, True, max_loss
+        return size_ok if "保证金" not in reason else False, day_ok, max_loss
+
+    decision = size_long_or_debit(account.equity, quote.ask, half_size=half)
+    premium_est = (
+        decision.premium_cost if decision.ok else max(quote.ask, 0.0) * MULTIPLIER
+    )
+    ok, reason = can_open_premium(
+        account,
+        new_premium=premium_est,
+        category=category,
+        strategy=strategy,
+    )
+    size_ok = decision.ok
+    day_ok = "日" not in reason and "亏损" not in reason
+    if ok and decision.ok:
+        return True, True, premium_est
+    return size_ok, day_ok if not ok else True, premium_est

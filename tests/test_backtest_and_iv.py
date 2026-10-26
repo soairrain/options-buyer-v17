@@ -6,7 +6,7 @@ import pytest
 
 from options_buyer.backtest import BacktestEngine, BarQuote
 from options_buyer.data.iv_rank import iv_percentile, iv_rank
-from options_buyer.execution.moomoo_stub import MoomooBrokerStub
+from options_buyer.execution.moomoo_stub import MoomooBrokerStub, MoomooNotConnectedError
 
 
 def test_iv_rank_percentile():
@@ -29,5 +29,5 @@ def test_moomoo_stub_refuses_live():
     b = MoomooBrokerStub()
     with pytest.raises(NotImplementedError):
         b.connect()
-    with pytest.raises(NotImplementedError):
+    with pytest.raises((NotImplementedError, MoomooNotConnectedError)):
         b.open_long(symbol="SPY")

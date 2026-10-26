@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "options-buyer-v17"
-version = "1.7.1"
+version = "1.7.2"
 description = "Options buyer order-flow trading rules engine (v1.7 finalized playbook)"
 readme = "README.md"
 requires-python = ">=3.10"

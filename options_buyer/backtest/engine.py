@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from options_buyer.core.r import compute_r
 from options_buyer.core.types import AccountState, StrategyCategory, StrategyType
 from options_buyer.execution.paper import Fill, PaperBroker
 from options_buyer.risk.elimination import TradeResult
@@ -55,7 +56,6 @@ class BacktestEngine:
         slip_note = f"开仓滑点半价差={(entry.ask - entry.bid) / 2:.4f}"
 
         if self.strategy == StrategyType.CREDIT_SPREAD:
-            # 信用：开仓收 bid 侧近似（卖在 bid）
             width = 5.0
             credit = entry.bid
             margin = (width - credit) * 100
@@ -68,6 +68,16 @@ class BacktestEngine:
                 dte=entry.dte,
                 structure_target_r=1.0,
             )
+            r_dollars = (
+                compute_r(
+                    StrategyType.CREDIT_SPREAD,
+                    width=width,
+                    credit=credit,
+                    contracts=pos.contracts if pos else 1,
+                ).r_dollars
+                if pos
+                else 1.0
+            )
         elif self.strategy == StrategyType.DEBIT_SPREAD:
             pos = broker.open_debit(
                 symbol="BACKTEST",
@@ -75,6 +85,15 @@ class BacktestEngine:
                 category=self.category,
                 dte=entry.dte,
                 structure_target_r=self.structure_target_r,
+            )
+            r_dollars = (
+                compute_r(
+                    StrategyType.DEBIT_SPREAD,
+                    debit=entry.ask,
+                    contracts=pos.contracts if pos else 1,
+                ).r_dollars
+                if pos
+                else 1.0
             )
         else:
             pos = broker.open_long(
@@ -84,6 +103,15 @@ class BacktestEngine:
                 dte=entry.dte,
                 structure_target_r=self.structure_target_r,
                 strategy=self.strategy,
+            )
+            r_dollars = (
+                compute_r(
+                    self.strategy,
+                    premium=entry.ask,
+                    contracts=pos.contracts if pos else 1,
+                ).r_dollars
+                if pos
+                else 1.0
             )
 
         notes = [slip_note]
@@ -113,38 +141,22 @@ class BacktestEngine:
                 break
 
         if not closed and pos.position_id in broker.positions:
-            # 强制按最后 bid/ask 平仓
             last = bars[-1]
             mark = last.ask if self.strategy == StrategyType.CREDIT_SPREAD else last.bid
-            # 直接用 mark 强制平：临时调低 dte 触发时间或手动
-            p = broker.positions[pos.position_id]
-            if p.strategy == StrategyType.CREDIT_SPREAD:
-                pnl = (p.credit - mark) * 100 * p.contracts
-                broker._release_credit_margin(p)
-            else:
-                pnl = (mark - p.entry_premium) * 100 * p.contracts
-                broker._release_premium(p, 1.0)
-            from options_buyer.risk import halt as halt_mod
-
-            halt_mod.apply_realized_pnl(acct, pnl)
-            if pnl > 0:
-                halt_mod.record_win(acct)
-            else:
-                # 期末强平 ≠ 规则止损
-                halt_mod.record_flat_or_loss_non_stop(acct)
-            broker.fills.append(
-                Fill(p.position_id, "close", p.contracts, mark, pnl=pnl, reason="回测期末强平")
+            broker.force_close(
+                pos.position_id, mark=mark, reason="回测期末强平"
             )
-            del broker.positions[pos.position_id]
             notes.append("期末强平")
 
         trades: list[TradeResult] = []
+        r_basis = max(abs(r_dollars), 1e-9)
         for f in broker.fills:
             if f.side in ("close", "sell_half"):
-                # 粗算 R：用权利金 50% 作 1R 近似
-                r = max(abs(entry.ask) * 0.5 * 100, 1e-9)
                 trades.append(
-                    TradeResult(pnl_r=f.pnl / r, pnl_pct_equity=f.pnl / self.equity)
+                    TradeResult(
+                        pnl_r=f.pnl / r_basis,
+                        pnl_pct_equity=f.pnl / self.equity,
+                    )
                 )
 
         day_pnl = acct.day_realized_pnl
