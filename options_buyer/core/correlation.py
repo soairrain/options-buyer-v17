@@ -13,6 +13,7 @@ class OpenRiskLeg:
     direction: int  # +1 看多 / -1 看空
     premium_usd: float
     category: str = ""
+    position_id: str = ""
 
 
 @dataclass

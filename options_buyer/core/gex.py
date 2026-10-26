@@ -95,37 +95,47 @@ def find_call_wall(rows: list[StrikeGex], *, spot: float) -> float | None:
 
 def find_put_wall(rows: list[StrikeGex], *, spot: float) -> float | None:
     """负 GEX（put 侧）最集中下方行权价。"""
-    below = [r for r in rows if r.strike <= spot]
+    below = [r for r in rows if r.strike <= spot and r.put_gex < 0]
     if not below:
         return None
-    # put_gex 通常为负；取绝对值最大
+    # put_gex 为负；取最负（绝对值最大）
     return min(below, key=lambda r: r.put_gex).strike
 
 
 def find_zero_gamma(rows: list[StrikeGex], *, spot: float) -> float | None:
-    """总 GEX 符号翻转的标的价位（按 strike 排序后找变号）。"""
-    if len(rows) < 2:
+    """总 GEX 符号翻转的标的价位。
+
+    优先：相邻 strike 的 net_gex 变号插值；
+    其次：累计 net_gex 真正穿越 0（prev_cum * cum < 0，不含 0→非0 起步）；
+    回退：|net_gex| 最小且靠近现价的 strike。
+    """
+    if not rows:
         return None
     ordered = sorted(rows, key=lambda r: r.strike)
-    # 累积净 GEX 从低到高，找穿越 0 的区间
+    if len(ordered) < 2:
+        return ordered[0].strike
+
+    # 1) 相邻 strike 净 GEX 变号
+    for i in range(len(ordered) - 1):
+        a, b = ordered[i], ordered[i + 1]
+        if a.net_gex * b.net_gex < 0:
+            denom = abs(a.net_gex) + abs(b.net_gex)
+            t = abs(a.net_gex) / denom
+            return a.strike + (b.strike - a.strike) * t
+
+    # 2) 累计穿越 0（必须两侧异号）
     cum = 0.0
     prev_strike = ordered[0].strike
     prev_cum = 0.0
     for r in ordered:
         cum += r.net_gex
-        if prev_cum == 0 and cum == 0:
-            prev_strike = r.strike
-            prev_cum = cum
-            continue
-        if prev_cum * cum < 0 or (prev_cum == 0 and cum != 0):
-            # 线性插值
-            if cum == prev_cum:
-                return r.strike
-            t = abs(prev_cum) / (abs(prev_cum) + abs(cum))
+        if prev_cum * cum < 0:
+            denom = abs(prev_cum) + abs(cum)
+            t = abs(prev_cum) / denom
             return prev_strike + (r.strike - prev_strike) * t
         prev_strike = r.strike
         prev_cum = cum
-    # 回退：距现价最近且净 GEX 绝对值最小的 strike
+
     return min(ordered, key=lambda r: (abs(r.net_gex), abs(r.strike - spot))).strike
 
 

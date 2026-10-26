@@ -55,7 +55,12 @@ def test_regime_rr_veto():
     s.positive_gex = True
     d = evaluate_regime(s, risk_reversal_sign=-1.0, gex_implies_long=True)
     assert d.bias == RegimeBias.NO_TRADE
-    assert not d.allow_new or d.bias == RegimeBias.NO_TRADE
+    assert d.allow_new is False
+    # Charm 不得翻回 allow_new
+    d2 = evaluate_regime(
+        s, risk_reversal_sign=-1.0, gex_implies_long=True, charm_adverse=True
+    )
+    assert d2.allow_new is False
 
 
 def test_trigger_bto_flow():

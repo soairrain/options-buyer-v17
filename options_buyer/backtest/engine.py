@@ -129,8 +129,9 @@ class BacktestEngine:
             halt_mod.apply_realized_pnl(acct, pnl)
             if pnl > 0:
                 halt_mod.record_win(acct)
-            elif pnl < 0:
-                halt_mod.record_stop(acct)
+            else:
+                # 期末强平 ≠ 规则止损
+                halt_mod.record_flat_or_loss_non_stop(acct)
             broker.fills.append(
                 Fill(p.position_id, "close", p.contracts, mark, pnl=pnl, reason="回测期末强平")
             )

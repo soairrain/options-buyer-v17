@@ -79,8 +79,11 @@ def test_e3_absorption_strong_suppress_to_debit():
 
 
 def test_credit_short_delta_stop():
+    from options_buyer.core.types import ExitReason
+
     d = credit_spread_exit(dte=20, pnl_r=0.0, short_delta=0.55)
     assert d.action == ExitAction.CLOSE_ALL
+    assert d.reason == ExitReason.SHORT_DELTA
 
 
 def test_spread_builders():

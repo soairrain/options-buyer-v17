@@ -34,6 +34,7 @@ class ExitReason(str, Enum):
     EXTREME_HALT = "extreme_halt"
     CHARM_ADVERSE = "charm_adverse"
     WALL_GONE = "wall_gone"
+    SHORT_DELTA = "short_delta"  # 信用短腿 Delta>0.50：风控平仓，≠1R 止损
 
 
 # 仓位与风控常量（账户百分比）

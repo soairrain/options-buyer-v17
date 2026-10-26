@@ -99,9 +99,17 @@ def run_intraday_gate(
     correlation_ok: bool,
     now: float | None = None,
 ) -> IntradayGate:
+    from options_buyer.core.types import PDT_DAY_TRADES_LIMIT, PDT_EQUITY_THRESHOLD
+
     extreme = extreme_paused(account, now=now)
+    pdt_clear = not (
+        account.equity < PDT_EQUITY_THRESHOLD
+        and account.day_trades_used_5d >= PDT_DAY_TRADES_LIMIT
+    )
+    # RR 硬否决：allow_new=False；Charm 减半：allow_new=True 且 size×0.5
+    gex_ok = regime.allow_new and regime.bias.value != "no_trade"
     checklist = build_checklist(
-        gex_regime_ok=regime.allow_new or regime.size_multiplier < 1.0,
+        gex_regime_ok=gex_ok,
         structure_active=structure_active,
         charm_ok=not regime.charm_adverse or regime.size_multiplier <= 0.5,
         flow_ok=flow_ok,
@@ -117,7 +125,7 @@ def run_intraday_gate(
         greeks_ok=greeks_ok,
         correlation_ok=correlation_ok,
         halt_clear=not account.halted,
-        pdt_clear=True,  # 细项由 veto/paper 再卡；SOP 层用账户态
+        pdt_clear=pdt_clear,
     )
     reasons = [i.label for i in checklist.failures()]
     if extreme:

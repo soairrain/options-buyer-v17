@@ -85,12 +85,13 @@ def run_mean_reversion(
         liq_s = check_liquidity(short_quote)
         steps.append(StrategyStepResult("liq_short", liq_s.ok, liq_s.reason))
         delta_ok = 0.20 <= abs(short_quote.delta) <= 0.30
-        dte_ok = 14 <= short_quote.dte <= 45
+        # 与 choose_branch 信用档一致：21–45（§4.3 / §5.3）
+        dte_ok = branch.dte_lo <= short_quote.dte <= branch.dte_hi
         steps.append(
             StrategyStepResult(
                 "delta_dte",
                 delta_ok and dte_ok,
-                f"短腿 δ={short_quote.delta} dte={short_quote.dte}",
+                f"短腿 δ={short_quote.delta} dte={short_quote.dte}（需 {branch.dte_lo}–{branch.dte_hi}）",
             )
         )
         liq_p = check_liquidity(protect_quote, protect_leg=True)

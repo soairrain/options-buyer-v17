@@ -51,13 +51,18 @@ def run_breakout(
             else "禁止：突破未收盘追买",
         )
     )
+    # 降级仍可交易（减仓），但不算完美触发
     steps.append(
         StrategyStepResult(
             "trigger",
-            trigger.fired and not trigger.degraded,
+            trigger.fired,
             "BTO 净 Delta + V/OI≥1"
             if trigger.fired and not trigger.degraded
-            else f"触发失败/降级: {'; '.join(trigger.reasons)}",
+            else (
+                f"触发降级（可减仓）: {'; '.join(trigger.reasons)}"
+                if trigger.fired
+                else f"触发失败: {'; '.join(trigger.reasons)}"
+            ),
         )
     )
 
@@ -67,16 +72,9 @@ def run_breakout(
         event_window=event_window,
         category=StrategyCategory.BREAKOUT,
     )
-    # 禁止 IVR>50 裸买虚值
+    # choose_branch 在 IVR>50 已避开裸买虚值；此处仅记录
     if iv_rank > 50 and branch.strategy == StrategyType.LONG:
         veto.append("禁止：IV Rank >50 裸买虚值")
-        branch = choose_branch(
-            iv_rank=iv_rank,
-            positive_gex=False,
-            event_window=event_window,
-            category=StrategyCategory.BREAKOUT,
-            want_naked_despite_high_iv=False,
-        )
 
     steps.append(
         StrategyStepResult(

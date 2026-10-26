@@ -78,17 +78,16 @@ def evaluate_regime(
         reasons.append("负 GEX：结构位变加速触发，动量买方优先")
 
     size_mult = 1.0
-    allow_new = True
     if charm_adverse:
         size_mult = 0.5
-        allow_new = False  # 文稿：Charm 与方向相反 → 不新开，或仓位减半
-        reasons.append("Charm 逆流：不新开或仓位减半")
-        # 调用方可选减仓后仍开；此处默认不允许新开，减半由 size_multiplier 表达
-        allow_new = False
+        reasons.append("Charm 逆流：不新开或仓位减半（size×0.5）")
 
     if rr_veto:
         bias = RegimeBias.NO_TRADE
-        allow_new = False
+        allow_new = False  # RR 硬否决，不可被 Charm 减半路径翻回
+    else:
+        # Charm：允许以减半仓新开；无 Charm 则正常开
+        allow_new = True
 
     if put_skew_steep:
         reasons.append("Put Skew 陡峭：买 Put 需更严价格过滤")
@@ -110,5 +109,5 @@ def evaluate_regime(
         naked_dte_lo=t_lo,
         naked_dte_hi=t_hi,
         reasons=tuple(reasons),
-        allow_new=allow_new or size_mult < 1.0,  # 减半路径仍可开
+        allow_new=allow_new,
     )
