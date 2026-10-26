@@ -30,6 +30,7 @@ from options_buyer.core.types import (
     PDT_EQUITY_THRESHOLD,
     AccountState,
     ExitReason,
+    OptionQuote,
     Position,
     StrategyCategory,
     StrategyType,
@@ -64,6 +65,15 @@ class PaperBroker:
     enforce_soft_overtrade: bool = True
     # 开仓方向（相关合计）；默认看多
     default_direction: int = 1
+    # 内存期权链（按标的符号）；满足 Broker.get_chain
+    chain_by_underlying: dict[str, list[OptionQuote]] = field(default_factory=dict)
+
+    def set_chain(self, underlying: str, quotes: list[OptionQuote]) -> None:
+        """注入/替换某标的的纸面期权链。"""
+        self.chain_by_underlying[underlying.upper()] = list(quotes)
+
+    def get_chain(self, underlying: str) -> list[OptionQuote]:
+        return list(self.chain_by_underlying.get(underlying.upper(), []))
 
     def _hard_gates(
         self,
@@ -673,6 +683,44 @@ class PaperBroker:
             mark,
             pnl=pnl,
             reason=decision.detail or (decision.reason.value if decision.reason else ""),
+        )
+        self.fills.append(fill)
+        del self.positions[position_id]
+        return fill
+
+    def force_close(
+        self,
+        position_id: str,
+        *,
+        mark: float,
+        reason: str = "强制平仓",
+        count_as_stop: bool = False,
+    ) -> Fill | None:
+        """公开强制全平（回测期末 / 人工）：不走止盈止损表。"""
+        pos = self.positions.get(position_id)
+        if not pos:
+            return None
+        if pos.strategy == StrategyType.CREDIT_SPREAD:
+            pnl = (pos.credit - mark) * MULTIPLIER * pos.contracts
+            self._release_credit_margin(pos)
+        else:
+            pnl = (mark - pos.entry_premium) * MULTIPLIER * pos.contracts
+            self._release_premium(pos, 1.0)
+        halt_mod.apply_realized_pnl(self.account, pnl)
+        if count_as_stop and pnl <= 0:
+            halt_mod.record_stop(self.account)
+        elif pnl > 0:
+            halt_mod.record_win(self.account)
+        else:
+            halt_mod.record_flat_or_loss_non_stop(self.account)
+        self._track_corr_close(pos)
+        fill = Fill(
+            pos.position_id,
+            "close",
+            pos.contracts,
+            mark,
+            pnl=pnl,
+            reason=reason,
         )
         self.fills.append(fill)
         del self.positions[position_id]

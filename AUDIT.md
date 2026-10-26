@@ -1,14 +1,15 @@
 # v1.7 文稿 vs 代码审计
 
-审计时间：Asia/Shanghai 2026-10-26（补全轮）
+审计时间：Asia/Shanghai 2026-10-26（缺口补全轮）
 
 ## 总评
 
 | 维度 | 结论 |
 | --- | --- |
 | 可计算规则 + 信号/SOP/回测骨架 | **已补全**（见下） |
-| 实盘数据 / Moomoo 真连接 | **未接**（仅 stub；纸面默认） |
-| 已实现规则正确性 | 核心 E1–E26 已修；新增模块有单测覆盖 |
+| 编排门禁（墙体 / 清单） | **已按真实输入计算**（不再硬编码 True） |
+| 行情 / Moomoo 适配 | **可插拔端口 + Fake 校验**；真下单/真 HTTP 需调用方注入凭证与客户端 |
+| 已实现规则正确性 | 核心 E1–E26 已修；缺口补全有单测覆盖 |
 
 ---
 
@@ -30,8 +31,9 @@
 | §9 否决 | `risk/veto.py` |
 | §10 SOP | `sop/daily.py` |
 | §11 检查清单 | `signals/checklist.py` |
-| §12 回测 / 执行层 | `backtest/engine.py`；`execution/moomoo_stub.py`（不接实盘） |
+| §12 回测 / 执行层 | `backtest/engine.py`；`execution/moomoo_stub.py`（可插拔） |
 | 相关性 / 策略淘汰 | `core/correlation.py` / `risk/elimination.py` |
+| 行情端口 | `data/ports.py` / `fake.py` / `opra_adapter.py` |
 
 ---
 
@@ -39,16 +41,18 @@
 
 见本文件前几版记录：均已修复（信用保证金、借方时间止损、3A 分支、IV 路径、跳空 2R、Theta 买方门禁等）。
 
+缺口补全轮另修：`pipeline` 墙外均值回归误开、清单硬编码 True、`PaperBroker.get_chain`、回测私有 API、CLI 主路径、LICENSE。
+
 ---
 
-## 三、仍非本包职责（需外部系统）
+## 三、仍需外部系统（凭证 / 真连接）
 
-- 实时 OPRA / GEX 数据源与 10–60s 重算调度
-- Moomoo OpenSecTradeContext 真连与下单
+- 实时 OPRA / GEX 供应商账号与 Transport 实现
+- Moomoo OpenD 真连与多腿下单映射
 - 长期历史期权 tick 存储与完整组合回测平台
 
-调用方注入行情与链数据后，本包规则与步骤机可直接判定。
+端口、配置校验与 Fake 已就绪；接入说明见 `docs/plugging-in.md`。
 
 ## 四、验证
 
-`PYTHONPATH=. python3 -m pytest tests -q` → **56 passed**
+`PYTHONPATH=. python3 -m pytest tests -q` → **82 passed**（含编排墙体/清单、Broker 协议、行情/Moomoo Fake、Yahoo 公开 OHLC 离线回测）。

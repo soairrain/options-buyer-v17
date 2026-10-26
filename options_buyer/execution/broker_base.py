@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from options_buyer.core.types import OptionQuote, Position, StrategyCategory, StrategyType
 from options_buyer.execution.paper import Fill
 
 
+@runtime_checkable
 class Broker(Protocol):
+    """统一经纪商端口：纸面与实盘适配器均应满足。
+
+    `get_chain` 对纸面可为内存链；实盘由 OpenAPI 拉取。
+    """
+
     def open_long(
         self,
         *,
