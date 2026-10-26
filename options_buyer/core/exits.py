@@ -119,7 +119,7 @@ def credit_spread_exit(
     """信用价差：止盈 = 1R；止损 = 1R；短腿 Delta >0.50 平仓。"""
     if short_delta is not None and abs(short_delta) > 0.50:
         return ExitDecision(
-            ExitAction.CLOSE_ALL, ExitReason.STOP_1R, "短腿 Delta >0.50 平仓"
+            ExitAction.CLOSE_ALL, ExitReason.SHORT_DELTA, "短腿 Delta >0.50 平仓"
         )
     if pnl_r <= -1.0 + _R_EPS:
         return ExitDecision(ExitAction.CLOSE_ALL, ExitReason.STOP_1R, "信用价差亏损 1R")
