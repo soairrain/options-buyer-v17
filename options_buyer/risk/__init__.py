@@ -1,3 +1,4 @@
+from options_buyer.risk.elimination import TradeResult, evaluate_elimination
 from options_buyer.risk.greeks import aggregate
 from options_buyer.risk.halt import (
     apply_realized_pnl,
@@ -10,9 +11,11 @@ from options_buyer.risk.halt import (
 from options_buyer.risk.veto import VetoContext, evaluate_vetoes
 
 __all__ = [
+    "TradeResult",
     "VetoContext",
     "aggregate",
     "apply_realized_pnl",
+    "evaluate_elimination",
     "evaluate_vetoes",
     "record_stop",
     "record_win",

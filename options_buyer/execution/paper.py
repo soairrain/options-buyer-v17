@@ -31,6 +31,7 @@ from options_buyer.core.types import (
     StrategyCategory,
     StrategyType,
 )
+from options_buyer.core.extreme import extreme_paused
 from options_buyer.risk import halt as halt_mod
 from options_buyer.risk.greeks import PortfolioGreeks
 
@@ -52,6 +53,8 @@ class PaperBroker:
     fills: list[Fill] = field(default_factory=list)
     # 可选：最近一次组合 Greeks；未提供则跳过 Greeks 门禁
     portfolio_greeks: PortfolioGreeks | None = None
+    # 可选时钟（回测/单测注入）；None 则用 wall clock
+    now: float | None = None
 
     def _hard_gates(
         self,
@@ -59,9 +62,11 @@ class PaperBroker:
         *,
         dte: int,
     ) -> bool:
-        """开仓硬门禁：停机 / PDT / DTE<7 禁新开裸买 / Greeks。"""
+        """开仓硬门禁：停机 / 极端暂停 / PDT / DTE<7 禁新开裸买 / Greeks。"""
         a = self.account
         if a.halted:
+            return False
+        if extreme_paused(a, now=self.now):
             return False
         if (
             a.equity < PDT_EQUITY_THRESHOLD

@@ -30,6 +30,10 @@ class ExitReason(str, Enum):
     DAY_HALT = "day_halt"
     MANUAL = "manual"
     EXPIRY = "expiry"
+    ASSIGNMENT = "assignment"
+    EXTREME_HALT = "extreme_halt"
+    CHARM_ADVERSE = "charm_adverse"
+    WALL_GONE = "wall_gone"
 
 
 # 仓位与风控常量（账户百分比）
@@ -64,6 +68,19 @@ IV_CRUSH_MIN_RATIO = 0.20
 PDT_EQUITY_THRESHOLD = 25_000.0
 PDT_DAY_TRADES_LIMIT = 3
 PDT_LOOKBACK_DAYS = 5
+
+# 极端行情熔断（§3.4.3）
+EXTREME_ATR_MULT = 3.0
+EXTREME_PAUSE_SECONDS = 15 * 60
+EXTREME_BOOK_MIN_SIZE = 10
+
+# 相关性（第九章）
+CORRELATION_THRESHOLD = 0.8
+CORRELATED_PREMIUM_MAX = 0.02
+
+# 策略淘汰（盘后）
+ELIMINATION_LOOKBACK = 20
+ELIMINATION_MAX_DRAWDOWN = 0.03
 
 MULTIPLIER = 100
 
