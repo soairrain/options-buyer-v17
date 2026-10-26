@@ -29,6 +29,7 @@ python -m pip install -e ".[dev]"
 PYTHONPATH=. python -m options_buyer.cli demo
 PYTHONPATH=. python -m options_buyer.cli pipeline
 PYTHONPATH=. python -m options_buyer.cli backtest
+PYTHONPATH=. python -m options_buyer.cli public-backtest   # Yahoo fixture，默认离线
 PYTHONPATH=. python -m pytest tests -q
 ```
 
@@ -36,7 +37,11 @@ PYTHONPATH=. python -m pytest tests -q
 
 ```bash
 PYTHONPATH=. python examples/paper_day.py
+PYTHONPATH=. python examples/public_backtest.py            # 离线 fixture
+# PYTHONPATH=. python examples/public_backtest.py --live   # 可选联网 Yahoo
 ```
+
+公开 API 回测说明见 [`docs/plugging-in.md`](docs/plugging-in.md#公开-api-纸面回测yahoo-chart无-key)。
 
 ## 审计
 

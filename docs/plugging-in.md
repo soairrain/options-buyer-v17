@@ -69,3 +69,32 @@ chain = broker.get_chain("SPY")
 ## 纸面链
 
 `PaperBroker.set_chain(underlying, quotes)` / `get_chain` 满足 `Broker` Protocol，便于本地联调。
+
+## 公开 API 纸面回测（Yahoo Chart，无 Key）
+
+**选型**：Yahoo Finance 公开 Chart API  
+`https://query1.finance.yahoo.com/v8/finance/chart/{SYMBOL}`  
+- 无需注册 / API Key（stdlib `urllib`）
+- 提供标的日频 OHLC
+- **免费层做不到**：历史期权链、OPRA tick、真实 GEX；权利金由固定 Delta 近似合成
+
+曾评估 Stooq（现有 JS 挑战挡自动化）、Alpha Vantage / Polygon / Finnhub（需 Key 且免费额度紧、期权历史仍稀缺）。对本仓库 `BacktestEngine`（bid/ask 序列）而言，Yahoo OHLC + Delta 代理是零密钥下的最佳拟合。
+
+### 离线（CI / 默认）
+
+```bash
+PYTHONPATH=. python -m options_buyer.cli public-backtest
+# 或
+PYTHONPATH=. python examples/public_backtest.py
+```
+
+默认读取 `tests/fixtures/yahoo_spy_daily.json`（录制的 Yahoo 日线），**不联网**。
+
+### 联网（本机可选）
+
+```bash
+PYTHONPATH=. python -m options_buyer.cli public-backtest --live --symbol SPY --days 60
+```
+
+参数：`--premium` / `--delta` / `--half-spread` / `--dte` 控制合成权利金路径。  
+实现：`options_buyer.data.yahoo` + `options_buyer.backtest.public_run`。

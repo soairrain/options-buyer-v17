@@ -55,4 +55,4 @@
 
 ## 四、验证
 
-`PYTHONPATH=. python3 -m pytest tests -q` → **75 passed**（含编排墙体/清单、Broker 协议、行情与 Moomoo Fake 适配器回归）。
+`PYTHONPATH=. python3 -m pytest tests -q` → **82 passed**（含编排墙体/清单、Broker 协议、行情/Moomoo Fake、Yahoo 公开 OHLC 离线回测）。

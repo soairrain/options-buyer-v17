@@ -7,6 +7,11 @@ import json
 
 from options_buyer import PLAYBOOK_VERSION, __version__
 from options_buyer.backtest import BacktestEngine, BarQuote
+from options_buyer.backtest.public_run import (
+    PublicBacktestParams,
+    default_fixture_path,
+    run_public_backtest,
+)
 from options_buyer.core.branch import choose_branch
 from options_buyer.core.gex import StrikeGex
 from options_buyer.core.r import compute_r
@@ -180,6 +185,28 @@ def cmd_backtest(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_public_backtest(args: argparse.Namespace) -> int:
+    """Yahoo 公开 OHLC（或 fixture）→ Delta 合成权利金 → 纸面回测。"""
+    fixture = args.fixture
+    live = bool(args.live)
+    if not live and not fixture:
+        fixture = str(default_fixture_path())
+    params = PublicBacktestParams(
+        symbol=args.symbol,
+        lookback_days=args.days,
+        entry_premium=args.premium,
+        delta=args.delta,
+        half_spread=args.half_spread,
+        start_dte=args.dte,
+        equity=args.equity,
+        fixture_path=None if live else fixture,
+        live=live,
+    )
+    report = run_public_backtest(params)
+    print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="期权买方 v1.7 规则引擎")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -206,6 +233,29 @@ def main(argv: list[str] | None = None) -> int:
 
     p_bt = sub.add_parser("backtest", help="合成 bid/ask 跑纸面回测冒烟")
     p_bt.set_defaults(func=cmd_backtest)
+
+    p_pub = sub.add_parser(
+        "public-backtest",
+        help="Yahoo 公开 OHLC（默认 fixture；--live 才联网）纸面回测",
+    )
+    p_pub.add_argument("--symbol", default="SPY")
+    p_pub.add_argument("--days", type=int, default=60, help="live 回看日历日")
+    p_pub.add_argument("--premium", type=float, default=2.0, help="合成开仓权利金")
+    p_pub.add_argument("--delta", type=float, default=0.45)
+    p_pub.add_argument("--half-spread", type=float, default=0.05, dest="half_spread")
+    p_pub.add_argument("--dte", type=int, default=45)
+    p_pub.add_argument("--equity", type=float, default=50_000)
+    p_pub.add_argument(
+        "--fixture",
+        default=None,
+        help="离线 JSON fixture 路径（默认 tests/fixtures/yahoo_spy_daily.json）",
+    )
+    p_pub.add_argument(
+        "--live",
+        action="store_true",
+        help="从 Yahoo Chart API 实时拉取（无 API Key；CI 勿用）",
+    )
+    p_pub.set_defaults(func=cmd_public_backtest)
 
     args = parser.parse_args(argv)
     return args.func(args)

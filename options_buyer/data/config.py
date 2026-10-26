@@ -17,6 +17,7 @@ class MarketDataConfig:
       - ``fake``：内存假源（测试）
       - ``opra``：需注入实现了 ``MarketDataFeed`` 的 OPRA/供应商客户端
       - ``custom``：任意注入 feed
+      - ``yahoo``：公开 Chart OHLC（见 ``data.yahoo`` / ``public-backtest``；无期权链历史）
     """
 
     provider: str = "fake"
@@ -29,9 +30,9 @@ class MarketDataConfig:
 
     def validate(self) -> None:
         p = (self.provider or "").strip().lower()
-        if p not in ("fake", "opra", "custom"):
+        if p not in ("fake", "opra", "custom", "yahoo"):
             raise MarketDataConfigError(
-                f"未知 provider={self.provider!r}；允许: fake | opra | custom"
+                f"未知 provider={self.provider!r}；允许: fake | opra | custom | yahoo"
             )
         self.provider = p
         if not self.underlyings:
